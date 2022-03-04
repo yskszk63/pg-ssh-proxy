@@ -4,14 +4,32 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path"
 
+	"github.com/BurntSushi/toml"
+	"github.com/adrg/xdg"
+	homedir "github.com/mitchellh/go-homedir"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/sync/errgroup"
-	//"golang.org/x/crypto/ssh"
 )
+
+type Connection struct {
+	Sshaddr  string `toml:"sshaddr"`
+	Name     string `toml:"name"`
+	Username string `toml:"username"`
+	Identity string `toml:"identity"`
+	Pgaddr   string `toml:"pgaddr"`
+}
+
+type Config struct {
+	Connections []Connection `toml:"connections"`
+}
 
 func read32(r io.Reader) (uint32, error) {
 	var b [4]byte
@@ -30,11 +48,11 @@ func readPacket(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
-	pkt := make([]byte, size - 4)
+	pkt := make([]byte, size-4)
 	if n, err := io.ReadFull(r, pkt); err != nil {
 		return nil, err
-	} else if n != int(size - 4) {
-		return nil, fmt.Errorf("%d != 4", size - 4)
+	} else if n != int(size-4) {
+		return nil, fmt.Errorf("%d != 4", size-4)
 	}
 	return pkt, nil
 }
@@ -53,7 +71,7 @@ func write32(w io.Writer, v uint32) error {
 }
 
 func writePacket(w io.Writer, pkt []byte) error {
-	if err := write32(w, uint32(len(pkt) + 4)); err != nil {
+	if err := write32(w, uint32(len(pkt)+4)); err != nil {
 		return err
 	}
 
@@ -66,7 +84,7 @@ func writePacket(w io.Writer, pkt []byte) error {
 	return nil
 }
 
-func serve(cx context.Context, conn net.Conn) error {
+func serve(cx context.Context, conn net.Conn, config *Config) error {
 	for {
 		pkt, err := readPacket(conn)
 		if err != nil {
@@ -94,18 +112,56 @@ func serve(cx context.Context, conn net.Conn) error {
 			return fmt.Errorf("Unsupported version.")
 		}
 
-		kv := bytes.Split(pkt[4:], []byte { 0 })
-		if len(kv) % 2 != 0 {
+		kv := bytes.Split(pkt[4:], []byte{0})
+		if len(kv)%2 != 0 {
 			return fmt.Errorf("Unexpected format.")
 		}
-		for i := 0; i < len(kv) / 2; i ++ {
+		var entry *Connection
+		for i := 0; i < len(kv)/2; i++ {
 			// decide upstream
-			k := kv[(i * 2) + 0]
-			v := kv[(i * 2) + 1]
-			fmt.Printf("%s %s\n", k, v)
+			k := kv[(i*2)+0]
+			v := kv[(i*2)+1]
+
+			if string(k) == "database" {
+				for _, item := range config.Connections {
+					if item.Name == string(v) {
+						entry = &item
+					}
+				}
+			}
+		}
+		if entry == nil {
+			return fmt.Errorf("No such connection.")
 		}
 
-		up, err := net.Dial("tcp", "[::1]:5432")
+		ident, err := homedir.Expand(entry.Identity)
+		if err != nil {
+			return err
+		}
+
+		sshkey, err := os.ReadFile(ident)
+		if err != nil {
+			return err
+		}
+		signer, err := ssh.ParsePrivateKey(sshkey)
+		if err != nil {
+			return err
+		}
+
+		sshconf := ssh.ClientConfig{
+			User: entry.Username,
+			Auth: []ssh.AuthMethod{
+				ssh.PublicKeys(signer),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		}
+		client, err := ssh.Dial("tcp", entry.Sshaddr, &sshconf)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+
+		up, err := client.Dial("tcp", entry.Pgaddr)
 		if err != nil {
 			return err
 		}
@@ -128,8 +184,36 @@ func serve(cx context.Context, conn net.Conn) error {
 	}
 }
 
+var addr = flag.String("addr", "[::1]:5432", "listen address.")
+var config = flag.String("config", path.Join(xdg.ConfigHome, "pg-ssh-proxy.toml"), "config file.")
+
 func main() {
-	l, err := net.Listen("tcp", "[::1]:15432")
+	flag.Parse()
+
+	config, err := func() (*Config, error) {
+		var r Config
+
+		fp, err := os.Open(*config)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return &r, nil
+			}
+			return nil, err
+		}
+		defer fp.Close()
+		dec := toml.NewDecoder(fp)
+		_, err = dec.Decode(&r)
+		if err != nil {
+			return nil, err
+		}
+		return &r, nil
+	}()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(-1)
+	}
+
+	l, err := net.Listen("tcp", *addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(-1)
@@ -145,7 +229,7 @@ func main() {
 
 		go func() {
 			defer conn.Close()
-			if err := serve(context.TODO(), conn); err != nil {
+			if err := serve(context.TODO(), conn, config); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
 		}()
