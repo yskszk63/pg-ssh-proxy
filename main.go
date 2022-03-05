@@ -4,31 +4,76 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/user"
 	"path"
 
 	"github.com/BurntSushi/toml"
 	"github.com/adrg/xdg"
 	homedir "github.com/mitchellh/go-homedir"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/sync/errgroup"
 )
 
+type SshConnection struct {
+	Addr       string   `toml:"addr"`
+	User       string   `toml:"user"`
+	Identity   []string `toml:"identity"`
+	KnownHosts string   `toml:"known_hosts"`
+}
+
 type Connection struct {
-	Sshaddr  string `toml:"sshaddr"`
-	Name     string `toml:"name"`
-	Username string `toml:"username"`
-	Identity string `toml:"identity"`
-	Pgaddr   string `toml:"pgaddr"`
+	Addr   string        `toml:"addr"`
+	Dbname string        `toml:"dbname"`
+	Ssh    SshConnection `toml:"ssh"`
 }
 
 type Config struct {
-	Connections []Connection `toml:"connections"`
+	Connections map[string]*Connection
+}
+
+func parseConfig(path string) (*Config, error) {
+	r := Config{
+		Connections: map[string]*Connection{},
+	}
+
+	fp, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer fp.Close()
+
+	dec := toml.NewDecoder(fp)
+	if _, err := dec.Decode(&r.Connections); err != nil {
+		return nil, err
+	}
+
+	for name, conf := range r.Connections {
+		if conf.Dbname == "" {
+			conf.Dbname = name
+		}
+		if conf.Ssh.User == "" {
+			if u, _ := user.Current(); u != nil {
+				conf.Ssh.User = u.Username
+			}
+		}
+		if conf.Ssh.Identity == nil {
+			conf.Ssh.Identity = []string{
+				"~/.ssh/id_rsa",
+				"~/.ssh/id_ed25519",
+			}
+		}
+		if conf.Ssh.KnownHosts == "" {
+			conf.Ssh.KnownHosts = "~/.ssh/known_hosts"
+		}
+	}
+
+	return &r, nil
 }
 
 func read32(r io.Reader) (uint32, error) {
@@ -123,45 +168,54 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 			v := kv[(i*2)+1]
 
 			if string(k) == "database" {
-				for _, item := range config.Connections {
-					if item.Name == string(v) {
-						entry = &item
-					}
-				}
+				entry = config.Connections[string(v)]
+				break
 			}
 		}
 		if entry == nil {
 			return fmt.Errorf("No such connection.")
 		}
 
-		ident, err := homedir.Expand(entry.Identity)
-		if err != nil {
-			return err
+		signers := make([]ssh.Signer, 0)
+		for _, fp := range entry.Ssh.Identity {
+			ident, err := homedir.Expand(fp)
+			if err != nil {
+				return err
+			}
+			sshkey, err := os.ReadFile(ident)
+			if err != nil {
+				return err
+			}
+			signer, err := ssh.ParsePrivateKey(sshkey)
+			if err != nil {
+				return err
+			}
+			signers = append(signers, signer)
 		}
 
-		sshkey, err := os.ReadFile(ident)
+		kh, err := homedir.Expand(entry.Ssh.KnownHosts)
 		if err != nil {
 			return err
 		}
-		signer, err := ssh.ParsePrivateKey(sshkey)
+		hkcb, err := knownhosts.New(kh)
 		if err != nil {
 			return err
 		}
 
 		sshconf := ssh.ClientConfig{
-			User: entry.Username,
+			User: entry.Ssh.User,
 			Auth: []ssh.AuthMethod{
-				ssh.PublicKeys(signer),
+				ssh.PublicKeys(signers...),
 			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			HostKeyCallback: hkcb,
 		}
-		client, err := ssh.Dial("tcp", entry.Sshaddr, &sshconf)
+		client, err := ssh.Dial("tcp", entry.Ssh.Addr, &sshconf)
 		if err != nil {
 			return err
 		}
 		defer client.Close()
 
-		up, err := client.Dial("tcp", entry.Pgaddr)
+		up, err := client.Dial("tcp", entry.Addr)
 		if err != nil {
 			return err
 		}
@@ -184,36 +238,18 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 	}
 }
 
-var addr = flag.String("addr", "[::1]:5432", "listen address.")
-var config = flag.String("config", path.Join(xdg.ConfigHome, "pg-ssh-proxy.toml"), "config file.")
-
 func main() {
+	var addrFlag = flag.String("addr", "[::1]:5432", "listen address.")
+	var configFlag = flag.String("config", path.Join(xdg.ConfigHome, "pg-ssh-proxy.toml"), "config file.")
 	flag.Parse()
 
-	config, err := func() (*Config, error) {
-		var r Config
-
-		fp, err := os.Open(*config)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return &r, nil
-			}
-			return nil, err
-		}
-		defer fp.Close()
-		dec := toml.NewDecoder(fp)
-		_, err = dec.Decode(&r)
-		if err != nil {
-			return nil, err
-		}
-		return &r, nil
-	}()
+	config, err := parseConfig(*configFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(-1)
 	}
 
-	l, err := net.Listen("tcp", *addr)
+	l, err := net.Listen("tcp", *addrFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(-1)
