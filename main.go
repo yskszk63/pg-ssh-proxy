@@ -9,72 +9,14 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/user"
 	"path"
 
-	"github.com/BurntSushi/toml"
 	"github.com/adrg/xdg"
 	homedir "github.com/mitchellh/go-homedir"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/sync/errgroup"
 )
-
-type SshConnection struct {
-	Addr       string   `toml:"addr"`
-	User       string   `toml:"user"`
-	Identity   []string `toml:"identity"`
-	KnownHosts string   `toml:"known_hosts"`
-}
-
-type Connection struct {
-	Addr   string        `toml:"addr"`
-	Dbname string        `toml:"dbname"`
-	Ssh    SshConnection `toml:"ssh"`
-}
-
-type Config struct {
-	Connections map[string]*Connection
-}
-
-func parseConfig(path string) (*Config, error) {
-	r := Config{
-		Connections: map[string]*Connection{},
-	}
-
-	fp, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer fp.Close()
-
-	dec := toml.NewDecoder(fp)
-	if _, err := dec.Decode(&r.Connections); err != nil {
-		return nil, err
-	}
-
-	for name, conf := range r.Connections {
-		if conf.Dbname == "" {
-			conf.Dbname = name
-		}
-		if conf.Ssh.User == "" {
-			if u, _ := user.Current(); u != nil {
-				conf.Ssh.User = u.Username
-			}
-		}
-		if conf.Ssh.Identity == nil {
-			conf.Ssh.Identity = []string{
-				"~/.ssh/id_rsa",
-				"~/.ssh/id_ed25519",
-			}
-		}
-		if conf.Ssh.KnownHosts == "" {
-			conf.Ssh.KnownHosts = "~/.ssh/known_hosts"
-		}
-	}
-
-	return &r, nil
-}
 
 func read32(r io.Reader) (uint32, error) {
 	var b [4]byte
@@ -243,7 +185,7 @@ func main() {
 	var configFlag = flag.String("config", path.Join(xdg.ConfigHome, "pg-ssh-proxy.toml"), "config file.")
 	flag.Parse()
 
-	config, err := parseConfig(*configFlag)
+	config, err := parseConfig(os.DirFS("/"), *configFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(-1)

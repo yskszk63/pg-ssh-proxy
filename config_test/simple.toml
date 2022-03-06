@@ -1,0 +1,5 @@
+[simple]
+addr = "10.20.30.40"
+
+[simple.ssh]
+addr = "10.20.30.40"
