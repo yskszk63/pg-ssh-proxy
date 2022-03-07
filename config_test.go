@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"embed"
+	"os/user"
 	"reflect"
 	"testing"
-	"os/user"
 
 	"github.com/BurntSushi/toml"
 )
@@ -19,7 +19,7 @@ func TestParseConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tests := []struct{
+	tests := []struct {
 		name  string
 		path  string
 		wants map[string]*Connection
@@ -31,11 +31,11 @@ func TestParseConfig(t *testing.T) {
 			wants: map[string]*Connection{},
 		},
 		{
-			name:  "simple",
-			path:  "config_test/simple.toml",
+			name: "simple",
+			path: "config_test/simple.toml",
 			wants: map[string]*Connection{
 				"simple": {
-					Addr: "10.20.30.40:5432",
+					Addr:   "10.20.30.40:5432",
 					Dbname: "simple",
 					Ssh: SshConnection{
 						Addr: "10.20.30.40:22",

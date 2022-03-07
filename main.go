@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path"
@@ -18,63 +19,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func read32(r io.Reader) (uint32, error) {
-	var b [4]byte
-	if n, err := io.ReadFull(r, b[:]); err != nil {
-		return 0, err
-	} else if n != 4 {
-		return 0, fmt.Errorf("%d != 4", n)
-	}
-
-	return binary.BigEndian.Uint32(b[:]), nil
-}
-
-func readPacket(r io.Reader) ([]byte, error) {
-	size, err := read32(r)
-	if err != nil {
-		return nil, err
-	}
-
-	pkt := make([]byte, size-4)
-	if n, err := io.ReadFull(r, pkt); err != nil {
-		return nil, err
-	} else if n != int(size-4) {
-		return nil, fmt.Errorf("%d != 4", size-4)
-	}
-	return pkt, nil
-}
-
-func write32(w io.Writer, v uint32) error {
-	var b [4]byte
-	binary.BigEndian.PutUint32(b[:], v)
-
-	if n, err := w.Write(b[:]); err != nil {
-		return err
-	} else if n != 4 {
-		return fmt.Errorf("%d != 4", n)
-	}
-
-	return nil
-}
-
-func writePacket(w io.Writer, pkt []byte) error {
-	if err := write32(w, uint32(len(pkt)+4)); err != nil {
-		return err
-	}
-
-	if n, err := w.Write(pkt); err != nil {
-		return err
-	} else if n != len(pkt) {
-		return fmt.Errorf("%d != n", len(pkt))
-	}
-
-	return nil
-}
-
 func serve(cx context.Context, conn net.Conn, config *Config) error {
 	for {
-		pkt, err := readPacket(conn)
-		if err != nil {
+		var pkt rawPacket
+		if err := pkt.read(conn); err != nil {
 			return err
 		}
 
@@ -163,7 +111,7 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 		}
 		defer up.Close()
 
-		if err := writePacket(up, pkt); err != nil {
+		if err := pkt.write(up); err != nil {
 			return nil
 		}
 
@@ -180,12 +128,18 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 	}
 }
 
+type osfs struct{}
+
+func (osfs) Open(name string) (fs.File, error) {
+	return os.Open(name)
+}
+
 func main() {
 	var addrFlag = flag.String("addr", "[::1]:5432", "listen address.")
 	var configFlag = flag.String("config", path.Join(xdg.ConfigHome, "pg-ssh-proxy.toml"), "config file.")
 	flag.Parse()
 
-	config, err := parseConfig(os.DirFS("/"), *configFlag)
+	config, err := parseConfig(osfs{}, *configFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(-1)

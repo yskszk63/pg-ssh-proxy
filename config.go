@@ -36,20 +36,13 @@ func clarifyKnownPort(addr string, kp int16) string {
 	return fmt.Sprintf("%s:%d", addr, kp)
 }
 
-func parseConfig(fs fs.FS ,path string) (*Config, error) {
+func parseConfig(fs fs.FS, path string) (*Config, error) {
 	r := Config{
-		fs: fs,
+		fs:          fs,
 		Connections: map[string]*Connection{},
 	}
 
-	fp, err := fs.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer fp.Close()
-
-	dec := toml.NewDecoder(fp)
-	if _, err := dec.Decode(&r.Connections); err != nil {
+	if _, err := toml.DecodeFS(fs, path, &r.Connections); err != nil {
 		return nil, err
 	}
 
