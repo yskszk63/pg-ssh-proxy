@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 )
 
@@ -32,9 +34,15 @@ func (p *rawPacket) read(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if size < 4 {
+		return fmt.Errorf("invalid packet size")
+	}
 
 	pkt := make([]byte, size-4)
 	if _, err := io.ReadFull(r, pkt); err != nil {
+		if errors.Is(io.EOF, err) {
+			return io.ErrUnexpectedEOF
+		}
 		return err
 	}
 	*p = pkt
