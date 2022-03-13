@@ -105,7 +105,7 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 		}
 
 		switch p := p2.(type) {
-		case startupMessage:
+		case *startupMessage:
 			var entry *Connection
 
 			if db := p.database(); db != nil {
@@ -126,7 +126,7 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 				return err
 			}
 
-		case sslRequest:
+		case *sslRequest:
 			if _, err := conn.Write([]byte("N")); err != nil {
 				return err
 			}

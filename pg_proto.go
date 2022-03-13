@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 )
 
 func read32(r io.Reader) (uint32, error) {
@@ -88,10 +89,17 @@ func (p *rawInitialPacket) write(w io.Writer) error {
 	return nil
 }
 
-func (p *rawInitialPacket) toConcrete() (interface{}, error) {
+type initialPacket interface {
+	toRaw() rawInitialPacket
+}
+
+func (p *rawInitialPacket) toConcrete() (initialPacket, error) {
 	b := bytes.NewBuffer(*p)
 	v, err := read32(b)
 	if err != nil {
+		if errors.Is(io.EOF, err) {
+			return nil, io.ErrUnexpectedEOF
+		}
 		return nil, err
 	}
 
@@ -100,11 +108,11 @@ func (p *rawInitialPacket) toConcrete() (interface{}, error) {
 		p := make(map[string]string)
 		for {
 			k, err := readString(b)
-			if err != nil && errors.Is(io.EOF, err) {
+			if err != nil {
 				return nil, err
 			}
 			if k == "" {
-				return startupMessage{p}, nil
+				return &startupMessage{p}, nil
 			}
 
 			v, err := readString(b)
@@ -115,10 +123,16 @@ func (p *rawInitialPacket) toConcrete() (interface{}, error) {
 		}
 
 	case 80877103:
-		return sslRequest{}, nil
+		return &sslRequest{}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown packet.")
+	}
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -136,22 +150,27 @@ func (v *startupMessage) database() *string {
 func (v *startupMessage) toRaw() rawInitialPacket {
 	b := &bytes.Buffer{}
 
-	if err := write32(b, 196608); err != nil {
-		panic(err)
-	}
+	must(write32(b, 196608))
 
-	for k, v := range v.params {
-		if err := writeString(b, k); err != nil {
-			panic(err)
-		}
-		if err := writeString(b, v); err != nil {
-			panic(err)
-		}
+	keys := make([]string, 0, len(v.params))
+	for k := range v.params {
+		keys = append(keys, k)
 	}
-	if _, err := b.Write([]byte{0}); err != nil {
-		panic(err)
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		must(writeString(b, k))
+		must(writeString(b, v.params[k]))
 	}
+	must(b.WriteByte(0))
 	return rawInitialPacket(b.Bytes())
 }
 
 type sslRequest struct{}
+
+func (v *sslRequest) toRaw() rawInitialPacket {
+	b := &bytes.Buffer{}
+
+	must(write32(b, 80877103))
+	return rawInitialPacket(b.Bytes())
+}
