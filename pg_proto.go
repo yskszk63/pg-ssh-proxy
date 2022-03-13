@@ -33,6 +33,9 @@ func readString(r io.Reader) (string, error) {
 	for {
 		b := make([]byte, 1)
 		if _, err := io.ReadFull(r, b); err != nil {
+			if errors.Is(err, io.EOF) {
+				return "", io.ErrUnexpectedEOF
+			}
 			return "", err
 		}
 		if b[0] == 0 {

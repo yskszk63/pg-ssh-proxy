@@ -122,6 +122,113 @@ func TestWrite32Err(t *testing.T) {
 	}
 }
 
+func TestReadString(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  []byte
+		wants string
+		err   string
+	}{
+		{
+			name:  "empty",
+			data:  []byte{0},
+			wants: "",
+		},
+		{
+			name:  "size 1",
+			data:  []byte{'a', 0},
+			wants: "a",
+		},
+		{
+			name: "eof",
+			data: []byte{'a'},
+			err:  "unexpected EOF",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			b := bytes.NewBuffer(test.data)
+			v, err := readString(b)
+			if test.err != "" {
+				if err == nil {
+					t.Fatal()
+				}
+				if err.Error() != test.err {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if v != test.wants {
+				t.Fatalf("%s != %s", v, test.wants)
+			}
+		})
+	}
+}
+
+func TestWriteString(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  string
+		wants []byte
+	}{
+		{
+			name:  "empty",
+			data:  "",
+			wants: []byte{0},
+		},
+		{
+			name:  "size 1",
+			data:  "a",
+			wants: []byte{'a', 0},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			b := &bytes.Buffer{}
+			if err := writeString(b, test.data); err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(b.Bytes(), test.wants) {
+				t.Fatalf("%s != %s", b.Bytes(), test.wants)
+			}
+		})
+	}
+}
+
+func TestWriteStringErr(t *testing.T) {
+	r, w := io.Pipe()
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeString(w, ""); err == nil {
+		t.Fail()
+	} else if err.Error() != "io: read/write on closed pipe" {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteStringErr2(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		defer r.Close()
+		io.ReadFull(r, make([]byte, 1))
+	}()
+
+	if err := writeString(w, "a"); err == nil {
+		t.Fail()
+	} else if err.Error() != "io: read/write on closed pipe" {
+		t.Fatal(err)
+	}
+}
+
 func TestRawPacketRead(t *testing.T) {
 	tests := []struct {
 		name  string
