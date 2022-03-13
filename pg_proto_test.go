@@ -126,23 +126,23 @@ func TestRawPacketRead(t *testing.T) {
 	tests := []struct {
 		name  string
 		data  []byte
-		wants rawPacket
+		wants rawInitialPacket
 		err   string
 	}{
 		{
 			name:  "test empty",
 			data:  []byte{0x00, 0x00, 0x00, 0x04},
-			wants: rawPacket{},
+			wants: rawInitialPacket{},
 		},
 		{
 			name:  "test size1",
 			data:  []byte{0x00, 0x00, 0x00, 0x05, 0xFF},
-			wants: rawPacket{0xFF},
+			wants: rawInitialPacket{0xFF},
 		},
 		{
 			name:  "test size2",
 			data:  []byte{0x00, 0x00, 0x00, 0x06, 0xFF, 0xEE},
-			wants: rawPacket{0xFF, 0xEE},
+			wants: rawInitialPacket{0xFF, 0xEE},
 		},
 		{
 			name: "test EOF 1",
@@ -193,7 +193,7 @@ func TestRawPacketRead(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var pkt rawPacket
+			var pkt rawInitialPacket
 			if err := pkt.read(bytes.NewBuffer(test.data)); err != nil {
 				if test.err == "" || test.err != err.Error() {
 					t.Fatal(err)
@@ -213,22 +213,22 @@ func TestRawPacketRead(t *testing.T) {
 func TestRawPacketWrite(t *testing.T) {
 	tests := []struct {
 		name  string
-		data  rawPacket
+		data  rawInitialPacket
 		wants []byte
 	}{
 		{
 			name:  "empty",
-			data:  rawPacket{},
+			data:  rawInitialPacket{},
 			wants: []byte{0x00, 0x00, 0x00, 0x04},
 		},
 		{
 			name:  "size1",
-			data:  rawPacket{0xFF},
+			data:  rawInitialPacket{0xFF},
 			wants: []byte{0x00, 0x00, 0x00, 0x05, 0xFF},
 		},
 		{
 			name:  "size1",
-			data:  rawPacket{0xFF, 0xEE},
+			data:  rawInitialPacket{0xFF, 0xEE},
 			wants: []byte{0x00, 0x00, 0x00, 0x06, 0xFF, 0xEE},
 		},
 	}
@@ -255,7 +255,7 @@ func TestRawPacketWriteErr1(t *testing.T) {
 			panic(err)
 		}
 	}()
-	p := rawPacket{0xFF}
+	p := rawInitialPacket{0xFF}
 	if err := p.write(w); err != nil {
 		if err.Error() != "io: read/write on closed pipe" {
 			t.Fatal(err)
@@ -271,7 +271,7 @@ func TestRawPacketWriteErr2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := rawPacket{0xFF}
+	p := rawInitialPacket{0xFF}
 	if err := p.write(w); err != nil {
 		if err.Error() != "io: read/write on closed pipe" {
 			t.Fatal(err)

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -19,113 +17,133 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type sshTunnel struct {
+	client *ssh.Client
+	conn   net.Conn
+}
+
+func (s *sshTunnel) Close() error {
+	if err := s.conn.Close(); err != nil {
+		return err
+	}
+	if err := s.client.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sshTunnel) Read(b []byte) (int, error) {
+	return s.conn.Read(b)
+}
+
+func (s *sshTunnel) Write(b []byte) (int, error) {
+	return s.conn.Write(b)
+}
+
+func connect(config *Connection) (*sshTunnel, error) {
+	signers := make([]ssh.Signer, 0)
+	for _, fname := range config.Ssh.Identity {
+		ident, err := homedir.Expand(fname)
+		if err != nil {
+			return nil, err // FIXME ignore?
+		}
+		sshkey, err := os.ReadFile(ident)
+		if err != nil {
+			return nil, err // FIXME ignore?
+		}
+		signer, err := ssh.ParsePrivateKey(sshkey)
+		if err != nil {
+			return nil, err // FIXME ignore?
+		}
+		signers = append(signers, signer)
+	}
+
+	hk, err := homedir.Expand(config.Ssh.KnownHosts)
+	if err != nil {
+		return nil, err
+	}
+	hkcb, err := knownhosts.New(hk)
+	if err != nil {
+		return nil, err
+	}
+
+	sshconf := ssh.ClientConfig{
+		User: config.Ssh.User,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(signers...),
+		},
+		HostKeyCallback: hkcb,
+	}
+	client, err := ssh.Dial("tcp", config.Ssh.Addr, &sshconf)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := client.Dial("tcp", config.Addr)
+	if err != nil {
+		client.Close()
+		return nil, err
+	}
+
+	return &sshTunnel{
+		client: client,
+		conn:   conn,
+	}, nil
+}
+
 func serve(cx context.Context, conn net.Conn, config *Config) error {
-	for {
-		var pkt rawPacket
+	var up *sshTunnel
+	for up == nil {
+		var pkt rawInitialPacket
 		if err := pkt.read(conn); err != nil {
 			return err
 		}
 
-		if len(pkt) < 4 {
-			return fmt.Errorf("Unexpected format.")
+		p2, err := pkt.toConcrete()
+		if err != nil {
+			return err
 		}
 
-		if binary.BigEndian.Uint32(pkt[:4]) == 80877103 {
-			// SSLRequest
-			if n, err := conn.Write([]byte("N")); err != nil {
-				return err
-			} else if n != 1 {
-				return fmt.Errorf("%d != 1", n)
+		switch p := p2.(type) {
+		case startupMessage:
+			var entry *Connection
+
+			if db := p.database(); db != nil {
+				entry = config.Connections[*db]
 			}
-			continue
-		}
 
-		// StartupMessage
-		major := binary.BigEndian.Uint16(pkt[0:2])
-		minor := binary.BigEndian.Uint16(pkt[2:4])
-		if major != 3 || minor != 0 {
-			return fmt.Errorf("Unsupported version.")
-		}
-
-		kv := bytes.Split(pkt[4:], []byte{0})
-		if len(kv)%2 != 0 {
-			return fmt.Errorf("Unexpected format.")
-		}
-		var entry *Connection
-		for i := 0; i < len(kv)/2; i++ {
-			// decide upstream
-			k := kv[(i*2)+0]
-			v := kv[(i*2)+1]
-
-			if string(k) == "database" {
-				entry = config.Connections[string(v)]
-				break
+			if entry == nil {
+				return fmt.Errorf("No such connection.")
 			}
-		}
-		if entry == nil {
-			return fmt.Errorf("No such connection.")
-		}
-
-		signers := make([]ssh.Signer, 0)
-		for _, fp := range entry.Ssh.Identity {
-			ident, err := homedir.Expand(fp)
+			up, err = connect(entry)
 			if err != nil {
 				return err
 			}
-			sshkey, err := os.ReadFile(ident)
-			if err != nil {
+
+			raw := p.toRaw()
+			if err := raw.write(up); err != nil {
+				up.Close()
 				return err
 			}
-			signer, err := ssh.ParsePrivateKey(sshkey)
-			if err != nil {
+
+		case sslRequest:
+			if _, err := conn.Write([]byte("N")); err != nil {
 				return err
 			}
-			signers = append(signers, signer)
 		}
-
-		kh, err := homedir.Expand(entry.Ssh.KnownHosts)
-		if err != nil {
-			return err
-		}
-		hkcb, err := knownhosts.New(kh)
-		if err != nil {
-			return err
-		}
-
-		sshconf := ssh.ClientConfig{
-			User: entry.Ssh.User,
-			Auth: []ssh.AuthMethod{
-				ssh.PublicKeys(signers...),
-			},
-			HostKeyCallback: hkcb,
-		}
-		client, err := ssh.Dial("tcp", entry.Ssh.Addr, &sshconf)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		up, err := client.Dial("tcp", entry.Addr)
-		if err != nil {
-			return err
-		}
-		defer up.Close()
-
-		if err := pkt.write(up); err != nil {
-			return nil
-		}
-
-		eg, _ := errgroup.WithContext(cx)
-		eg.Go(func() error {
-			_, err = io.Copy(up, conn)
-			return err
-		})
-		eg.Go(func() error {
-			_, err = io.Copy(conn, up)
-			return err
-		})
-		return eg.Wait()
 	}
+	defer up.Close()
+
+	eg, _ := errgroup.WithContext(cx)
+	eg.Go(func() error {
+		_, err := io.Copy(up, conn)
+		return err
+	})
+	eg.Go(func() error {
+		_, err := io.Copy(conn, up)
+		return err
+	})
+	return eg.Wait()
 }
 
 type osfs struct{}
