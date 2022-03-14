@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -24,13 +25,14 @@ type sshTunnel struct {
 }
 
 func (s *sshTunnel) Close() error {
-	if err := s.conn.Close(); err != nil {
-		return err
-	}
+	cerr := s.conn.Close()
 	if err := s.client.Close(); err != nil {
+		if cerr != nil {
+			return fmt.Errorf("%w (suppress %s)", err, cerr)
+		}
 		return err
 	}
-	return nil
+	return cerr
 }
 
 func (s *sshTunnel) Read(b []byte) (int, error) {
@@ -61,6 +63,7 @@ func dialSshTunnel(config sshTunnelSshConfig, addr string) (*sshTunnel, error) {
 		if err != nil {
 			return nil, err
 		}
+		defer fp.Close()
 		defer os.Remove(fp.Name())
 
 		src, err := config.fs.Open(config.knownHosts)
