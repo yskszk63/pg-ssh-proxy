@@ -485,6 +485,14 @@ func TestStartupMessageDatabase(t *testing.T) {
 	}
 }
 
+func TestStartupMessageSetDatabase(t *testing.T) {
+	m := &startupMessage{map[string]string{}}
+	m.setDataabse("db")
+	if *(m.database()) != "db" {
+		t.Fail()
+	}
+}
+
 func TestMust(t *testing.T) {
 	defer func() {
 		err := recover()

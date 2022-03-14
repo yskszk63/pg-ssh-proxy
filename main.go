@@ -66,7 +66,8 @@ func serve(cx context.Context, conn net.Conn, config *Config) error {
 				return err
 			}
 
-			raw := p.toRaw() // TODO rewrite database
+			p.setDataabse(entry.Dbname)
+			raw := p.toRaw()
 			if err := raw.write(up); err != nil {
 				up.Close()
 				return err

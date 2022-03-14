@@ -147,6 +147,10 @@ func (v *startupMessage) database() *string {
 	return nil
 }
 
+func (v *startupMessage) setDataabse(name string) {
+	v.params["database"] = name
+}
+
 func (v *startupMessage) toRaw() rawInitialPacket {
 	b := &bytes.Buffer{}
 
