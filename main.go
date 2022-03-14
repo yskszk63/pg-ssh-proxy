@@ -28,7 +28,7 @@ func proxy(cx context.Context, c1, c2 io.ReadWriter) error {
 	return eg.Wait()
 }
 
-func serve(cx context.Context, conn net.Conn, config *Config) error {
+func serve(cx context.Context, conn net.Conn, config *config) error {
 	var up *sshTunnel
 	for up == nil {
 		var pkt rawInitialPacket

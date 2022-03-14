@@ -9,7 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type SshConnection struct {
+type sshConnection struct {
 	Addr       string   `toml:"addr"`
 	User       string   `toml:"user"`
 	Identity   []string `toml:"identity"`
@@ -19,10 +19,10 @@ type SshConnection struct {
 type Connection struct {
 	Addr   string        `toml:"addr"`
 	Dbname string        `toml:"dbname"`
-	Ssh    SshConnection `toml:"ssh"`
+	Ssh    sshConnection `toml:"ssh"`
 }
 
-type Config struct {
+type config struct {
 	fs          fs.FS
 	Connections map[string]*Connection
 }
@@ -36,8 +36,8 @@ func clarifyKnownPort(addr string, kp int16) string {
 	return fmt.Sprintf("%s:%d", addr, kp)
 }
 
-func parseConfig(fs fs.FS, path string) (*Config, error) {
-	r := Config{
+func parseConfig(fs fs.FS, path string) (*config, error) {
+	r := config{
 		fs:          fs,
 		Connections: map[string]*Connection{},
 	}

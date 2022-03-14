@@ -37,7 +37,7 @@ func TestParseConfig(t *testing.T) {
 				"simple": {
 					Addr:   "10.20.30.40:5432",
 					Dbname: "simple",
-					Ssh: SshConnection{
+					Ssh: sshConnection{
 						Addr: "10.20.30.40:22",
 						User: u.Username,
 						Identity: []string{
