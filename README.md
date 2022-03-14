@@ -1,5 +1,7 @@
 # pg-ssh-proxy
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/yskszk63/pg-ssh-proxy)](https://goreportcard.com/report/github.com/yskszk63/pg-ssh-proxy)
+
 Postgresql SSH tunneling proxy server.
 
 Work In Progress..
