@@ -11,7 +11,7 @@ Usage of pg-ssh-proxy:
   -addr string
         listen address. (default "[::1]:5432")
   -config string
-        config file. (default "/home/yskszk63/.config/pg-ssh-proxy.toml")
+        config file. (default "~/.config/pg-ssh-proxy.toml")
 ```
 
 ## Config
