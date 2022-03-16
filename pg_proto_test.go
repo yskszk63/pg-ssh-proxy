@@ -230,7 +230,7 @@ func TestWriteStringErr2(t *testing.T) {
 	}
 }
 
-func TestRawPacketRead(t *testing.T) {
+func TestRawInitialPacketRead(t *testing.T) {
 	tests := []struct {
 		name  string
 		data  []byte
@@ -318,7 +318,7 @@ func TestRawPacketRead(t *testing.T) {
 	}
 }
 
-func TestRawPacketWrite(t *testing.T) {
+func TestRawInitialPacketWrite(t *testing.T) {
 	tests := []struct {
 		name  string
 		data  rawInitialPacket
@@ -354,7 +354,7 @@ func TestRawPacketWrite(t *testing.T) {
 	}
 }
 
-func TestRawPacketWriteErr1(t *testing.T) {
+func TestRawInitialPacketWriteErr1(t *testing.T) {
 	r, w := io.Pipe()
 	go func() {
 		defer r.Close()
@@ -373,7 +373,7 @@ func TestRawPacketWriteErr1(t *testing.T) {
 	t.Fail()
 }
 
-func TestRawPacketWriteErr2(t *testing.T) {
+func TestRawInitialPacketWriteErr2(t *testing.T) {
 	r, w := io.Pipe()
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
@@ -501,4 +501,124 @@ func TestMust(t *testing.T) {
 		}
 	}()
 	must(fmt.Errorf("err"))
+}
+
+func TestRawPacketWrite(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  rawPacket
+		wants []byte
+	}{
+		{
+			name:  "empty",
+			data:  rawPacket{0xFF, []byte{}},
+			wants: []byte{0xFF, 0x00, 0x00, 0x00, 0x04},
+		},
+		{
+			name:  "size1",
+			data:  rawPacket{0xFF, []byte{0xFF}},
+			wants: []byte{0xFF, 0x00, 0x00, 0x00, 0x05, 0xFF},
+		},
+		{
+			name:  "size1",
+			data:  rawPacket{0xFF, []byte{0xFF, 0xEE}},
+			wants: []byte{0xFF, 0x00, 0x00, 0x00, 0x06, 0xFF, 0xEE},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			b := bytes.Buffer{}
+			if err := test.data.write(&b); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(b.Bytes(), test.wants) {
+				t.Fatalf("%#v != %#v", b.Bytes(), test.wants)
+			}
+		})
+	}
+}
+
+func TestRawlPacketWriteErr1(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		defer r.Close()
+
+		if _, err := io.ReadFull(r, make([]byte, 4)); err != nil {
+			panic(err)
+		}
+	}()
+	p := rawPacket{0xFF, []byte{}}
+	if err := p.write(w); err != nil {
+		if err.Error() != "io: read/write on closed pipe" {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fail()
+}
+
+func TestRawlPacketWriteErr2(t *testing.T) {
+	r, w := io.Pipe()
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	p := rawPacket{0xFF, []byte{0xFF}}
+	if err := p.write(w); err != nil {
+		if err.Error() != "io: read/write on closed pipe" {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fail()
+}
+
+func TestRawlPacketWriteErr3(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		defer r.Close()
+
+		if _, err := io.ReadFull(r, make([]byte, 5)); err != nil {
+			panic(err)
+		}
+	}()
+	p := rawPacket{0xFF, []byte{}}
+	if err := p.write(w); err != nil {
+		if err.Error() != "io: read/write on closed pipe" {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fail()
+}
+
+func TestPacketToRaw(t *testing.T) {
+	tests := []struct {
+		name  string
+		data  packet
+		wants rawPacket
+	}{
+		{
+			"errorResponse",
+			&errorResponse{
+				fields: []errorResponseField{
+					{
+						code:  'M',
+						value: "OK",
+					},
+				},
+			},
+			rawPacket{'E', []byte{0x4d, 0x4f, 0x4b, 0x00, 0x00}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw := test.data.toRaw()
+			if !reflect.DeepEqual(raw, test.wants) {
+				t.Fatalf("%#v != %#v", raw, test.wants)
+			}
+		})
+	}
 }
