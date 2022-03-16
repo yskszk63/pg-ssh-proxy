@@ -58,8 +58,12 @@ jobs:
       - run: ssh-keyscan 10.123.234.2 >> ~/.ssh/known_hosts
 
       - run: ssh root@10.123.234.2 whoami
-      - run: echo 'select version()' | psql --host=10.123.234.3 --username postgres --password secret
+      - run: echo 'select version()' | psql --host=10.123.234.3 --username postgres
+        env:
+          PGPASSWORD: secret
 
       - run: ./pg-ssh-proxy &
       - run: sleep 0.5
-      - run: echo 'select version()' | psql --host=localhost --username=postgres --password secret
+      - run: echo 'select version()' | psql --host=localhost --username=postgres
+        env:
+          PGPASSWORD: secret
