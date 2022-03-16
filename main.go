@@ -121,6 +121,30 @@ func main() {
 		go func() {
 			defer conn.Close()
 			if err := serve(context.TODO(), conn, config); err != nil {
+				pkt := &errorResponse{
+					fields: []errorResponseField{
+						{
+							code:  'S',
+							value: "ERROR",
+						},
+						{
+							code:  'C',
+							value: "XX000",
+						},
+						{
+							code:  'M',
+							value: err.Error(),
+						},
+						{
+							code:  'R',
+							value: "pg-ssh-proxy",
+						},
+					},
+				}
+				raw := pkt.toRaw()
+				if err := raw.write(conn); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
 				fmt.Fprintln(os.Stderr, err)
 			}
 		}()
