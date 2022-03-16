@@ -178,3 +178,49 @@ func (v *sslRequest) toRaw() rawInitialPacket {
 	must(write32(b, 80877103))
 	return rawInitialPacket(b.Bytes())
 }
+
+type rawPacket struct {
+	header byte
+	data   []byte
+}
+
+func (p *rawPacket) write(w io.Writer) error {
+	if _, err := w.Write([]byte{p.header}); err != nil {
+		return err
+	}
+	if err := write32(w, uint32(len(p.data)+4)); err != nil {
+		return err
+	}
+	if _, err := w.Write(p.data); err != nil {
+		return err
+	}
+	return nil
+}
+
+type packet interface {
+	toRaw() rawPacket
+}
+
+type errorResponseField struct {
+	code  byte
+	value string
+}
+
+type errorResponse struct {
+	fields []errorResponseField
+}
+
+func (v *errorResponse) toRaw() rawPacket {
+	b := &bytes.Buffer{}
+
+	for _, f := range v.fields {
+		must(b.WriteByte(f.code))
+		must(writeString(b, f.value))
+	}
+	must(b.WriteByte(0))
+
+	return rawPacket{
+		header: 'E',
+		data:   b.Bytes(),
+	}
+}
