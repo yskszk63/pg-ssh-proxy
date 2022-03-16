@@ -48,11 +48,11 @@ func dialSshTunnel(config sshTunnelSshConfig, addr string) (*sshTunnel, error) {
 	for _, ident := range config.idents {
 		pem, err := fs.ReadFile(config.fs, ident)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		signer, err := ssh.ParsePrivateKey(pem)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		signers = append(signers, signer)
 	}
