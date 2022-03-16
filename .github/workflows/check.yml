@@ -55,7 +55,7 @@ jobs:
       - run: docker network create --subnet 10.123.234.0/24 mynet
       - run: docker run --rm --network mynet --ip 10.123.234.2 --mount type=bind,src=$HOME/.ssh,dst=/conf,readonly -d sshd
       - run: docker run --rm --network mynet --ip 10.123.234.3 --env POSTGRES_PASSWORD=secret -d postgres:latest
-      - run: ssh-keyscan 10.123.234.2
+      - run: ssh-keyscan 10.123.234.2 >> ~/.ssh/known_hosts
 
       - run: ssh root@10.123.234.2 whoami
       - run: echo 'select version()' | psql --host=10.123.234.3 --username postgres --password secret
