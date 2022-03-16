@@ -57,4 +57,5 @@ jobs:
       - run: docker run --rm --network mynet --ip 10.123.234.3 --env POSTGRES_PASSWORD=secret -d postgres:latest
       - run: ssh-keyscan 10.123.234.2
       - run: ./pg-ssh-proxy &
+      - run: sleep 0.5
       - run: echo 'select version()' | psql --host=localhost --username=postgres --password secret postgres
