@@ -1,2 +1,4 @@
 pg-ssh-proxy
 cov.out
+
+dist/
