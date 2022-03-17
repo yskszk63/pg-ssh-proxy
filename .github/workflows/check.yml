@@ -43,7 +43,21 @@ jobs:
 
       - run: go test
 
+  build-sshd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - run: docker buildx build -t sshd ci
+      - run: docker save sshd | gzip > sshd.tar.gz
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: sshd.tar.gz
+          path: sshd.tar.gz
+
   it:
+    needs: build-sshd
     strategy:
       matrix:
         os:
@@ -53,6 +67,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: sshd.tar.gz
 
       - uses: docker/setup-buildx-action@v1
       - uses: actions/setup-go@v2
@@ -79,7 +97,7 @@ jobs:
           user = "root"
           EOF
 
-      - run: docker buildx build -t sshd --load ci
+      - run: docker load < sshd.tar.gz
       - run: docker network create --subnet 10.123.234.0/24 mynet
       - run: docker run --rm --network mynet --ip 10.123.234.2 --mount type=bind,src=$HOME/.ssh,dst=/conf,readonly -d sshd
       - run: docker run --rm --network mynet --ip 10.123.234.3 --env POSTGRES_PASSWORD=secret -d postgres:latest
