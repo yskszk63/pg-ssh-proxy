@@ -79,7 +79,7 @@ jobs:
           user = "root"
           EOF
 
-      - run: docker buildx build ci -t sshd
+      - run: docker buildx build -t sshd --load ci
       - run: docker network create --subnet 10.123.234.0/24 mynet
       - run: docker run --rm --network mynet --ip 10.123.234.2 --mount type=bind,src=$HOME/.ssh,dst=/conf,readonly -d sshd
       - run: docker run --rm --network mynet --ip 10.123.234.3 --env POSTGRES_PASSWORD=secret -d postgres:latest
