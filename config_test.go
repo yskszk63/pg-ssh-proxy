@@ -57,7 +57,7 @@ func TestParseConfig(t *testing.T) {
 		{
 			name: "invalid",
 			path: "config_test/invalid.toml",
-			err:  `toml: line 2: expected '.' or ']' to end table name, but got '\n' instead`,
+			err:  `toml: line 1: expected '.' or ']' to end table name, but got '\\' instead`,
 		},
 		{
 			name: "no_addr",
